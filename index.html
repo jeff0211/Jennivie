@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Jennivié POS</title>
+    
+    <!-- PWA Meta Tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#451a03">
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Tailwind Configuration -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        coffee: {
+                            50: '#fdf8f6',
+                            100: '#f2e8e5',
+                            500: '#8c6b5d',
+                            700: '#5c4033',
+                            900: '#3e2723'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #e5e5e5; /* Outside PWA body */
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* Mobile App Container */
+        #app-container {
+            max-width: 480px;
+            margin: 0 auto;
+            background-color: #fdf8f6;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+        }
+
+        /* Hide Scrollbar but keep functionality */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        /* Animations */
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .slide-up { animation: slideUp 0.3s ease-out forwards; }
+        @keyframes slideUp {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+        }
+
+        /* Modal Overlay */
+        #modal-overlay.active {
+            display: flex;
+            animation: fadeIn 0.2s ease-in-out;
+        }
+    </style>
+</head>
+<body class="text-gray-800">
+
+    <div id="app-container">
+        <!-- Header -->
+        <header class="bg-coffee-900 text-white p-4 shadow-md flex items-center justify-center z-10 relative">
+            <h1 class="text-xl font-bold tracking-wide">
+                <i class="fa-solid fa-mug-hot mr-2 text-coffee-100"></i>Jennivié
+            </h1>
+        </header>
+
+        <!-- Main Content Area -->
+        <main id="main-content" class="flex-1 overflow-y-auto no-scrollbar pb-20 relative">
+            
+            <!-- VIEW: DASHBOARD -->
+            <div id="view-dashboard" class="view-section p-4 fade-in hidden">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-bold text-coffee-900">Dashboard</h2>
+                    <div class="flex space-x-2">
+                        <select id="dash-timeframe" class="bg-white border border-gray-300 text-sm rounded-lg px-2 py-1 shadow-sm focus:outline-none focus:border-coffee-500" onchange="updateDashboard()">
+                            <option value="today">Today</option>
+                            <option value="week">This Week</option>
+                            <option value="month" selected>This Month</option>
+                            <option value="all">All Time</option>
+                        </select>
+                        <button onclick="togglePrivacy()" class="bg-gray-200 text-gray-700 p-2 rounded-lg shadow-sm hover:bg-gray-300 transition">
+                            <i id="privacy-icon" class="fa-solid fa-eye-slash"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- KPI Cards -->
+                <div class="grid grid-cols-2 gap-3 mb-6">
+                    <div class="bg-blue-50 p-4 rounded-xl shadow-sm border border-blue-100">
+                        <p class="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-1">Total Revenue</p>
+                        <p id="kpi-revenue" class="text-xl font-bold text-blue-800">$0.00</p>
+                    </div>
+                    <div class="bg-green-50 p-4 rounded-xl shadow-sm border border-green-100 relative">
+                        <p class="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-1">Total Profit</p>
+                        <p id="kpi-profit" class="text-xl font-bold text-green-800">***</p>
+                    </div>
+                </div>
+
+                <!-- Charts -->
+                <div class="space-y-6">
+                    <!-- Revenue Chart -->
+                    <div class="bg-white p-3 rounded-xl shadow-sm border border-gray-200">
+                        <h3 class="text-sm font-semibold text-gray-700 mb-2">Sales Revenue Overview</h3>
+                        <div class="relative h-48 w-full">
+                            <canvas id="revenueChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Profit/Loss Chart -->
+                    <div id="profit-chart-container" class="bg-white p-3 rounded-xl shadow-sm border border-gray-200 hidden">
+                        <h3 class="text-sm font-semibold text-gray-700 mb-2">Profit & Loss Overview</h3>
+                        <div class="relative h-48 w-full">
+                            <canvas id="profitChart"></canvas>
+                        </div>
+                    </div>
+                    <div id="profit-privacy-overlay" class="bg-gray-100 p-6 rounded-xl shadow-sm border border-gray-200 text-center flex flex-col items-center justify-center h-56">
+                        <i class="fa-solid fa-lock text-gray-400 text-2xl mb-2"></i>
+                        <p class="text-sm text-gray-500">P&L Data Hidden for Privacy</p>
+                        <p class="text-xs text-gray-400 mt-1">Tap the eye icon above to reveal.</p>
+                    </div>
+
+                    <!-- Volume Chart -->
+                    <div class="bg-white p-3 rounded-xl shadow-sm border border-gray-200">
+                        <div class="flex justify-between items-center mb-2">
+                            <h3 class="text-sm font-semibold text-gray-700">Quantity Sold</h3>
+                            <select id="dash-drink-filter" class="bg-gray-50 border border-gray-200 text-xs rounded px-1 py-1 focus:outline-none" onchange="updateDashboard()">
+                                <option value="all">All Drinks</option>
+                                <!-- Populated by JS -->
+                            </select>
+                        </div>
+                        <div class="relative h-48 w-full">
+                            <canvas id="volumeChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VIEW: ORDER -->
+            <div id="view-order" class="view-section p-4 fade-in hidden flex-col h-full">
+                <h2 class="text-lg font-bold text-coffee-900 mb-3">Menu</h2>
+                
+                <!-- Catalog Grid -->
+                <div id="catalog-grid" class="grid grid-cols-3 gap-3 mb-4 overflow-y-auto" style="max-height: 45vh;">
+                    <!-- Rendered by JS -->
+                </div>
+
+                <div class="border-t-2 border-dashed border-gray-300 my-2"></div>
+
+                <!-- Current Order (Cart) -->
+                <div class="flex-1 flex flex-col min-h-[200px]">
+                    <div class="flex justify-between items-center mb-2">
+                        <h2 class="text-lg font-bold text-coffee-900">Current Order</h2>
+                        <span id="cart-total" class="font-bold text-lg text-green-700">$0.00</span>
+                    </div>
+                    
+                    <div id="cart-list" class="flex-1 overflow-y-auto space-y-2 mb-4 bg-white p-2 rounded-xl shadow-inner border border-gray-100 no-scrollbar">
+                        <p class="text-center text-gray-400 text-sm mt-4 italic">No items in order.</p>
+                        <!-- Rendered by JS -->
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3 mt-auto">
+                        <button onclick="cancelOrder()" class="bg-red-50 text-red-600 border border-red-200 py-3 rounded-xl font-semibold shadow-sm hover:bg-red-100 transition flex items-center justify-center">
+                            <i class="fa-solid fa-xmark mr-2"></i> Cancel
+                        </button>
+                        <button onclick="completeOrder()" class="bg-coffee-700 text-white py-3 rounded-xl font-semibold shadow-md hover:bg-coffee-900 transition flex items-center justify-center">
+                            <i class="fa-solid fa-check mr-2"></i> Complete
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VIEW: HISTORY -->
+            <div id="view-history" class="view-section p-4 fade-in hidden">
+                <h2 class="text-lg font-bold text-coffee-900 mb-4">Activity Log</h2>
+                <div id="history-list" class="space-y-3">
+                    <!-- Rendered by JS -->
+                </div>
+            </div>
+
+            <!-- VIEW: REPORT -->
+            <div id="view-report" class="view-section p-4 fade-in hidden">
+                <h2 class="text-lg font-bold text-coffee-900 mb-2">Generate Report</h2>
+                <p class="text-sm text-gray-600 mb-6">Export your sales data from "Jennivie spreadsheet.xlsx" simulation into CSV format.</p>
+                
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-6">
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">Timeframe</label>
+                    <select id="report-timeframe" class="w-full bg-gray-50 border border-gray-300 text-md rounded-lg px-3 py-2 mb-4 focus:outline-none focus:border-coffee-500">
+                        <option value="today">Today</option>
+                        <option value="week">This Week</option>
+                        <option value="month">This Month</option>
+                        <option value="all" selected>All Time</option>
+                    </select>
+
+                    <button onclick="generateCSV()" class="w-full bg-blue-600 text-white py-3 rounded-xl font-semibold shadow-md hover:bg-blue-700 transition flex items-center justify-center">
+                        <i class="fa-solid fa-file-csv mr-2 text-xl"></i> Generate CSV Report
+                    </button>
+                </div>
+
+                <div class="relative">
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">CSV Output Data</label>
+                    <textarea id="report-output" readonly class="w-full h-48 bg-gray-50 border border-gray-300 rounded-lg p-3 text-xs font-mono text-gray-700 focus:outline-none whitespace-pre overflow-x-auto"></textarea>
+                    <button onclick="copyCSV()" class="absolute top-9 right-2 bg-gray-200 hover:bg-gray-300 text-gray-700 p-1.5 rounded shadow-sm transition text-xs">
+                        <i class="fa-regular fa-copy"></i> Copy
+                    </button>
+                </div>
+            </div>
+            
+        </main>
+
+        <!-- Bottom Navigation -->
+        <nav class="bg-white border-t border-gray-200 pb-safe shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
+            <div class="flex justify-around items-center h-16">
+                <button onclick="switchTab('dashboard')" class="nav-btn flex-1 flex flex-col items-center justify-center text-gray-400 hover:text-coffee-700 transition" data-target="dashboard">
+                    <i class="fa-solid fa-chart-pie text-xl mb-1"></i>
+                    <span class="text-[10px] font-medium">Dashboard</span>
+                </button>
+                <button onclick="switchTab('order')" class="nav-btn flex-1 flex flex-col items-center justify-center text-gray-400 hover:text-coffee-700 transition" data-target="order">
+                    <i class="fa-solid fa-cash-register text-xl mb-1"></i>
+                    <span class="text-[10px] font-medium">Order</span>
+                </button>
+                <button onclick="switchTab('history')" class="nav-btn flex-1 flex flex-col items-center justify-center text-gray-400 hover:text-coffee-700 transition" data-target="history">
+                    <i class="fa-solid fa-clock-rotate-left text-xl mb-1"></i>
+                    <span class="text-[10px] font-medium">History</span>
+                </button>
+                <button onclick="switchTab('report')" class="nav-btn flex-1 flex flex-col items-center justify-center text-gray-400 hover:text-coffee-700 transition" data-target="report">
+                    <i class="fa-solid fa-file-invoice text-xl mb-1"></i>
+                    <span class="text-[10px] font-medium">Report</span>
+                </button>
+            </div>
+        </nav>
+
+        <!-- Modals and Overlays -->
+        
+        <!-- Quantity Selection Modal -->
+        <div id="modal-overlay" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 items-end sm:items-center justify-center pb-safe">
+            <div class="bg-white w-full sm:w-80 rounded-t-2xl sm:rounded-2xl p-5 slide-up shadow-2xl mx-auto sm:mb-0 max-w-[480px]">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-bold text-gray-800" id="modal-drink-name">Select Quantity</h3>
+                    <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600 p-2"><i class="fa-solid fa-xmark text-xl"></i></button>
+                </div>
+                
+                <div class="flex items-center justify-center space-x-6 my-6">
+                    <button onclick="changeQty(-1)" class="w-12 h-12 rounded-full bg-gray-100 text-gray-700 flex items-center justify-center text-xl font-bold shadow-sm hover:bg-gray-200 active:scale-95 transition">
+                        <i class="fa-solid fa-minus"></i>
+                    </button>
+                    <span id="modal-qty" class="text-4xl font-bold text-coffee-900 w-12 text-center">1</span>
+                    <button onclick="changeQty(1)" class="w-12 h-12 rounded-full bg-gray-100 text-gray-700 flex items-center justify-center text-xl font-bold shadow-sm hover:bg-gray-200 active:scale-95 transition">
+                        <i class="fa-solid fa-plus"></i>
+                    </button>
+                </div>
+
+                <button onclick="confirmAddToOrder()" class="w-full bg-coffee-700 text-white py-3 rounded-xl font-semibold shadow-md hover:bg-coffee-900 transition mt-2">
+                    Add to Order
+                </button>
+            </div>
+        </div>
+
+        <!-- Custom Confirmation Message / Toast -->
+        <div id="toast" class="absolute top-16 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg text-sm font-medium transition-opacity duration-300 opacity-0 pointer-events-none z-50 flex items-center">
+            <i id="toast-icon" class="mr-2"></i> <span id="toast-msg">Message</span>
+        </div>
+
+    </div>
+
+    <script>
+        // --- Data Models & Mock Data Setup ---
+        const DRINKS_CATALOG = [
+            { id: 1, name: "Signature Coffee", cost: 1.50, price: 4.50, img: "https://placehold.co/150x150/4e342e/ffffff?text=Coffee" },
+            { id: 2, name: "Matcha Latte", cost: 2.00, price: 5.50, img: "https://placehold.co/150x150/388e3c/ffffff?text=Matcha" },
+            { id: 3, name: "Fruit Tea", cost: 1.20, price: 4.00, img: "https://placehold.co/150x150/fbc02d/000000?text=Fruit+Tea" },
+            { id: 4, name: "Boba Milk Tea", cost: 1.80, price: 5.00, img: "https://placehold.co/150x150/8d6e63/ffffff?text=Boba" },
+            { id: 5, name: "Sparkling Soda", cost: 1.00, price: 3.50, img: "https://placehold.co/150x150/0288d1/ffffff?text=Soda" },
+        ];
+
+        let state = {
+            orders: [], // Array of completed orders
+            logs: [],
+            currentCart: [],
+            privacyMode: true,
+            selectedDrinkForModal: null,
+            modalQty: 1
+        };
+
+        // Chart instances to destroy before redrawing
+        let charts = {
+            revenue: null,
+            profit: null,
+            volume: null
+        };
+
+        // Setup Chart defaults
+        Chart.defaults.font.family = "'Inter', sans-serif";
+        Chart.defaults.color = '#6b7280';
+        Chart.defaults.plugins.tooltip.backgroundColor = 'rgba(62, 39, 35, 0.9)'; // Coffee-900
+
+        // --- Initialization & Mock Data Generation ---
+        function init() {
+            generateMockHistory();
+            populateDrinkFilter();
+            renderCatalog();
+            switchTab('dashboard'); // Start at dashboard
+        }
+
+        function generateMockHistory() {
+            const now = new Date();
+            for (let i = 0; i < 40; i++) {
+                // Random date within the last 35 days
+                let d = new Date();
+                d.setDate(now.getDate() - Math.floor(Math.random() * 35));
+                d.setHours(Math.floor(Math.random() * 10) + 8); // 8am to 6pm
+                
+                let orderItems = [];
+                let numItems = Math.floor(Math.random() * 3) + 1;
+                
+                for(let j=0; j<numItems; j++) {
+                    let drink = DRINKS_CATALOG[Math.floor(Math.random() * DRINKS_CATALOG.length)];
+                    let qty = Math.floor(Math.random() * 3) + 1;
+                    
+                    // Check if already in orderItems
+                    let existing = orderItems.find(item => item.drink.id === drink.id);
+                    if(existing) {
+                        existing.qty += qty;
+                        existing.totalPrice = existing.qty * existing.drink.price;
+                        existing.totalCost = existing.qty * existing.drink.cost;
+                    } else {
+                        orderItems.push({
+                            drink: drink,
+                            qty: qty,
+                            totalPrice: drink.price * qty,
+                            totalCost: drink.cost * qty
+                        });
+                    }
+                }
+                
+                let totalRev = orderItems.reduce((sum, item) => sum + item.totalPrice, 0);
+                let totalCost = orderItems.reduce((sum, item) => sum + item.totalCost, 0);
+                
+                state.orders.push({
+                    items: orderItems,
+                    timestamp: d,
+                    status: "Completed",
+                    totalRevenue: totalRev,
+                    totalProfit: totalRev - totalCost
+                });
+
+                logActivity(d, "Order Complete", `${orderItems.length} item(s) sold.`);
+            }
+            // Sort orders chronologically
+            state.orders.sort((a,b) => a.timestamp - b.timestamp);
+        }
+
+        // --- Core Utility Functions ---
+
+        function showToast(message, type = 'info') {
+            const toast = document.getElementById('toast');
+            const msgEl = document.getElementById('toast-msg');
+            const iconEl = document.getElementById('toast-icon');
+            
+            msgEl.textContent = message;
+            toast.className = 'absolute top-16 left-1/2 transform -translate-x-1/2 px-4 py-2 rounded-lg shadow-lg text-sm font-medium transition-opacity duration-300 z-50 flex items-center';
+            
+            if(type === 'success') {
+                toast.classList.add('bg-green-600', 'text-white');
+                iconEl.className = 'fa-solid fa-circle-check mr-2';
+            } else if (type === 'error') {
+                toast.classList.add('bg-red-600', 'text-white');
+                iconEl.className = 'fa-solid fa-triangle-exclamation mr-2';
+            } else {
+                toast.classList.add('bg-gray-800', 'text-white');
+                iconEl.className = 'fa-solid fa-info-circle mr-2';
+            }
+
+            toast.classList.remove('opacity-0');
+            toast.classList.add('opacity-100');
+
+            setTimeout(() => {
+                toast.classList.remove('opacity-100');
+                toast.classList.add('opacity-0');
+            }, 3000);
+        }
+
+        function switchTab(tabId) {
+            // Update Nav buttons
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                if(btn.dataset.target === tabId) {
+                    btn.classList.add('text-coffee-700');
+                    btn.classList.remove('text-gray-400');
+                } else {
+                    btn.classList.remove('text-coffee-700');
+                    btn.classList.add('text-gray-400');
+                }
+            });
+
+            // Update Views
+            document.querySelectorAll('.view-section').forEach(view => {
+                view.classList.add('hidden');
+            });
+            document.getElementById(`view-${tabId}`).classList.remove('hidden');
+
+            // View specific logic
+            if(tabId === 'dashboard') updateDashboard();
+            if(tabId === 'history') renderHistory();
+        }
+
+        function logActivity(date, action, details) {
+            state.logs.push({
+                time: date,
+                action: action,
+                details: details
+            });
+            state.logs.sort((a,b) => b.time - a.time); // Newest first
+        }
+
+        // --- Dashboard & Analytics ---
+
+        function togglePrivacy() {
+            state.privacyMode = !state.privacyMode;
+            const icon = document.getElementById('privacy-icon');
+            icon.className = state.privacyMode ? 'fa-solid fa-eye-slash' : 'fa-solid fa-eye';
+            updateDashboard();
+        }
+
+        function populateDrinkFilter() {
+            const select = document.getElementById('dash-drink-filter');
+            DRINKS_CATALOG.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d.id;
+                opt.textContent = d.name;
+                select.appendChild(opt);
+            });
+        }
+
+        function getFilteredOrders(timeframe) {
+            const now = new Date();
+            return state.orders.filter(o => {
+                const d = o.timestamp;
+                if (timeframe === 'today') {
+                    return d.getDate() === now.getDate() && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+                } else if (timeframe === 'week') {
+                    const weekAgo = new Date();
+                    weekAgo.setDate(now.getDate() - 7);
+                    return d >= weekAgo;
+                } else if (timeframe === 'month') {
+                    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+                }
+                return true; // all
+            });
+        }
+
+        function updateDashboard() {
+            const timeframe = document.getElementById('dash-timeframe').value;
+            const orders = getFilteredOrders(timeframe);
+            
+            // Calculate KPIs
+            let totalRev = 0;
+            let totalProfit = 0;
+            orders.forEach(o => {
+                totalRev += o.totalRevenue;
+                totalProfit += o.totalProfit;
+            });
+
+            document.getElementById('kpi-revenue').textContent = `$${totalRev.toFixed(2)}`;
+            document.getElementById('kpi-profit').textContent = state.privacyMode ? '***' : `$${totalProfit.toFixed(2)}`;
+
+            // Handle Privacy UI for Chart
+            const profitChartContainer = document.getElementById('profit-chart-container');
+            const privacyOverlay = document.getElementById('profit-privacy-overlay');
+            if (state.privacyMode) {
+                profitChartContainer.classList.add('hidden');
+                privacyOverlay.classList.remove('hidden');
+            } else {
+                profitChartContainer.classList.remove('hidden');
+                privacyOverlay.classList.add('hidden');
+            }
+
+            // Aggregate Data for charts (Group by Date)
+            let dailyData = {};
+            orders.forEach(o => {
+                // format date string for X axis
+                const dateStr = timeframe === 'today' ? 
+                                o.timestamp.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 
+                                o.timestamp.toLocaleDateString([], {month: 'short', day: 'numeric'});
+                
+                if(!dailyData[dateStr]) {
+                    dailyData[dateStr] = { rev: 0, profit: 0, vol: {} };
+                }
+                dailyData[dateStr].rev += o.totalRevenue;
+                dailyData[dateStr].profit += o.totalProfit;
+                
+                o.items.forEach(item => {
+                    if(!dailyData[dateStr].vol[item.drink.id]) dailyData[dateStr].vol[item.drink.id] = 0;
+                    dailyData[dateStr].vol[item.drink.id] += item.qty;
+                });
+            });
+
+            const labels = Object.keys(dailyData);
+            const revData = labels.map(l => dailyData[l].rev);
+            const profitData = labels.map(l => dailyData[l].profit);
+
+            // Volume Data calculation based on filter
+            const filterDrinkId = document.getElementById('dash-drink-filter').value;
+            let volLabels = [];
+            let volData = [];
+
+            if (filterDrinkId === 'all') {
+                // Show total volume per drink over the timeframe
+                let totalsByDrink = {};
+                DRINKS_CATALOG.forEach(d => totalsByDrink[d.name] = 0);
+                orders.forEach(o => {
+                    o.items.forEach(item => {
+                        totalsByDrink[item.drink.name] += item.qty;
+                    });
+                });
+                volLabels = Object.keys(totalsByDrink);
+                volData = Object.values(totalsByDrink);
+            } else {
+                // Show specific drink volume over time
+                const drinkName = DRINKS_CATALOG.find(d => d.id == filterDrinkId).name;
+                volLabels = labels;
+                volData = labels.map(l => dailyData[l].vol[filterDrinkId] || 0);
+            }
+
+            // Render Charts
+            renderChart('revenue', 'revenueChart', labels, revData, 'Revenue ($)', 'rgba(59, 130, 246, 0.7)', 'rgba(59, 130, 246, 1)');
+            if(!state.privacyMode) {
+                renderChart('profit', 'profitChart', labels, profitData, 'Profit ($)', 'rgba(34, 197, 94, 0.7)', 'rgba(34, 197, 94, 1)');
+            }
+            renderChart('volume', 'volumeChart', volLabels, volData, 'Qty Sold', 'rgba(140, 107, 93, 0.7)', 'rgba(92, 64, 51, 1)');
+        }
+
+        function renderChart(chartKey, canvasId, labels, data, label, bgColor, borderColor) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            
+            if (charts[chartKey]) {
+                charts[chartKey].destroy();
+            }
+
+            // Simple empty state if no data
+            if(labels.length === 0) {
+                 charts[chartKey] = new Chart(ctx, {
+                    type: 'bar',
+                    data: { labels: ['No Data'], datasets: [{ data: [0], backgroundColor: '#e5e7eb' }] },
+                    options: { responsive: true, maintainAspectRatio: false, plugins:{ legend:{display:false} }, scales: {x:{display:false}, y:{display:false}} }
+                });
+                return;
+            }
+
+            charts[chartKey] = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: label,
+                        data: data,
+                        backgroundColor: bgColor,
+                        borderColor: borderColor,
+                        borderWidth: 1,
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { borderDash: [2, 4], color: '#f3f4f6' },
+                            ticks: { font: {size: 10} }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { font: {size: 10}, maxRotation: 45, minRotation: 0 }
+                        }
+                    }
+                }
+            });
+        }
+
+        // --- Order (POS) System ---
+
+        function renderCatalog() {
+            const grid = document.getElementById('catalog-grid');
+            grid.innerHTML = '';
+            
+            DRINKS_CATALOG.forEach(drink => {
+                const item = document.createElement('div');
+                item.className = 'bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100 cursor-pointer active:scale-95 transition flex flex-col h-full';
+                item.onclick = () => openQtyModal(drink);
+                
+                item.innerHTML = `
+                    <img src="${drink.img}" alt="${drink.name}" class="w-full h-20 object-cover bg-gray-100">
+                    <div class="p-2 flex-1 flex flex-col justify-between text-center">
+                        <h4 class="text-[11px] font-bold text-gray-800 leading-tight mb-1">${drink.name}</h4>
+                        <p class="text-xs text-coffee-700 font-semibold">$${drink.price.toFixed(2)}</p>
+                    </div>
+                `;
+                grid.appendChild(item);
+            });
+            renderCart();
+        }
+
+        function openQtyModal(drink) {
+            state.selectedDrinkForModal = drink;
+            state.modalQty = 1;
+            document.getElementById('modal-drink-name').textContent = drink.name;
+            document.getElementById('modal-qty').textContent = state.modalQty;
+            document.getElementById('modal-overlay').classList.add('active');
+        }
+
+        function closeModal() {
+            document.getElementById('modal-overlay').classList.remove('active');
+            state.selectedDrinkForModal = null;
+        }
+
+        function changeQty(delta) {
+            const newQty = state.modalQty + delta;
+            if(newQty >= 1 && newQty <= 99) {
+                state.modalQty = newQty;
+                document.getElementById('modal-qty').textContent = state.modalQty;
+            }
+        }
+
+        function confirmAddToOrder() {
+            if(!state.selectedDrinkForModal) return;
+            
+            const drink = state.selectedDrinkForModal;
+            const qty = state.modalQty;
+            
+            let existing = state.currentCart.find(i => i.drink.id === drink.id);
+            if(existing) {
+                existing.qty += qty;
+            } else {
+                state.currentCart.push({
+                    drink: drink,
+                    qty: qty
+                });
+            }
+            
+            closeModal();
+            renderCart();
+            showToast(`Added ${qty}x ${drink.name}`, 'success');
+        }
+
+        function renderCart() {
+            const list = document.getElementById('cart-list');
+            const totalEl = document.getElementById('cart-total');
+            list.innerHTML = '';
+            
+            if(state.currentCart.length === 0) {
+                list.innerHTML = `<div class="flex h-full items-center justify-center"><p class="text-center text-gray-400 text-sm italic">No items in order.</p></div>`;
+                totalEl.textContent = '$0.00';
+                return;
+            }
+
+            let total = 0;
+            state.currentCart.forEach((item, index) => {
+                const itemTotal = item.drink.price * item.qty;
+                total += itemTotal;
+                
+                const el = document.createElement('div');
+                el.className = 'flex justify-between items-center p-2 border-b border-gray-100 last:border-0 bg-gray-50 rounded mb-1';
+                el.innerHTML = `
+                    <div class="flex flex-col">
+                        <span class="text-sm font-bold text-gray-800">${item.drink.name}</span>
+                        <span class="text-xs text-gray-500">x${item.qty} (@ $${item.drink.price.toFixed(2)})</span>
+                    </div>
+                    <div class="flex items-center">
+                        <span class="text-sm font-bold text-coffee-900 mr-3">$${itemTotal.toFixed(2)}</span>
+                        <button onclick="removeCartItem(${index})" class="text-red-400 hover:text-red-600 p-1"><i class="fa-solid fa-trash-can"></i></button>
+                    </div>
+                `;
+                list.appendChild(el);
+            });
+            totalEl.textContent = `$${total.toFixed(2)}`;
+        }
+
+        function removeCartItem(index) {
+            state.currentCart.splice(index, 1);
+            renderCart();
+        }
+
+        function cancelOrder() {
+            if(state.currentCart.length === 0) return;
+            
+            const details = state.currentCart.map(i => `${i.drink.name} x${i.qty}`).join(', ');
+            logActivity(new Date(), "Order Cancelled", details);
+            
+            state.currentCart = [];
+            renderCart();
+            showToast('Order Cancelled', 'error');
+        }
+
+        function completeOrder() {
+            if(state.currentCart.length === 0) {
+                showToast('Cart is empty', 'info');
+                return;
+            }
+
+            const now = new Date();
+            let totalRev = 0;
+            let totalCost = 0;
+            
+            let orderItems = state.currentCart.map(i => {
+                const itemTotalRev = i.qty * i.drink.price;
+                const itemTotalCost = i.qty * i.drink.cost;
+                totalRev += itemTotalRev;
+                totalCost += itemTotalCost;
+                return {
+                    drink: i.drink,
+                    qty: i.qty,
+                    totalPrice: itemTotalRev,
+                    totalCost: itemTotalCost
+                }
+            });
+
+            state.orders.push({
+                items: orderItems,
+                timestamp: now,
+                status: "Completed",
+                totalRevenue: totalRev,
+                totalProfit: totalRev - totalCost
+            });
+
+            const details = orderItems.map(i => `${i.drink.name} x${i.qty}`).join(', ');
+            logActivity(now, "Order Complete", details);
+
+            state.currentCart = [];
+            renderCart();
+            showToast('Order Completed!', 'success');
+        }
+
+        // --- History ---
+
+        function renderHistory() {
+            const list = document.getElementById('history-list');
+            list.innerHTML = '';
+
+            if(state.logs.length === 0) {
+                list.innerHTML = `<p class="text-center text-gray-500 italic mt-10">No activities yet.</p>`;
+                return;
+            }
+
+            state.logs.forEach(log => {
+                const isComplete = log.action.includes('Complete');
+                const isCancel = log.action.includes('Cancel');
+                
+                let iconClass = 'fa-info-circle text-blue-500';
+                if(isComplete) iconClass = 'fa-circle-check text-green-500';
+                if(isCancel) iconClass = 'fa-circle-xmark text-red-500';
+
+                const dateStr = log.time.toLocaleDateString([], { month:'short', day:'numeric'});
+                const timeStr = log.time.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit'});
+
+                const el = document.createElement('div');
+                el.className = 'bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex items-start';
+                el.innerHTML = `
+                    <div class="mt-1 mr-3"><i class="fa-solid ${iconClass} text-xl"></i></div>
+                    <div class="flex-1">
+                        <div class="flex justify-between items-baseline mb-1">
+                            <h4 class="text-sm font-bold text-gray-800">${log.action}</h4>
+                            <span class="text-[10px] text-gray-400 font-medium">${dateStr} ${timeStr}</span>
+                        </div>
+                        <p class="text-xs text-gray-600 leading-tight">${log.details}</p>
+                    </div>
+                `;
+                list.appendChild(el);
+            });
+        }
+
+        // --- Reports ---
+
+        function generateCSV() {
+            const timeframe = document.getElementById('report-timeframe').value;
+            const orders = getFilteredOrders(timeframe);
+            
+            let totalOrders = orders.length;
+            let totalRev = 0;
+            let totalProf = 0;
+            let totalQty = 0;
+            
+            let csvContent = "Report Name,Jennivié Sales Report\n";
+            csvContent += `Timeframe,${timeframe}\n`;
+            csvContent += `Generated On,${new Date().toLocaleString()}\n\n`;
+            csvContent += "Metric,Value\n";
+            
+            let rowsData = [];
+            
+            orders.forEach(o => {
+                totalRev += o.totalRevenue;
+                totalProf += o.totalProfit;
+                o.items.forEach(item => {
+                    totalQty += item.qty;
+                    rowsData.push([
+                        o.timestamp.toLocaleDateString(),
+                        o.timestamp.toLocaleTimeString(),
+                        `"${item.drink.name}"`,
+                        item.qty,
+                        `$${item.totalPrice.toFixed(2)}`,
+                        `$${(item.totalPrice - item.totalCost).toFixed(2)}`
+                    ]);
+                });
+            });
+
+            csvContent += `Total Orders,${totalOrders}\n`;
+            csvContent += `Total Qty Sold,${totalQty}\n`;
+            csvContent += `Total Revenue,$${totalRev.toFixed(2)}\n`;
+            csvContent += `Total Profit/Loss,$${totalProf.toFixed(2)}\n\n`;
+            
+            csvContent += "Date,Time,Drink,Qty,Revenue,Profit\n";
+            rowsData.forEach(row => {
+                csvContent += row.join(",") + "\n";
+            });
+
+            document.getElementById('report-output').value = csvContent;
+            showToast('CSV Generated successfully!', 'success');
+        }
+
+        function copyCSV() {
+            const textarea = document.getElementById('report-output');
+            if(!textarea.value) {
+                showToast('Nothing to copy!', 'info');
+                return;
+            }
+            
+            textarea.select();
+            textarea.setSelectionRange(0, 99999); // For mobile devices
+
+            try {
+                // Use fallback for copy to ensure it works within constraints
+                document.execCommand('copy');
+                showToast('Copied to clipboard!', 'success');
+            } catch (err) {
+                showToast('Failed to copy', 'error');
+            }
+            
+            // Deselect
+            window.getSelection().removeAllRanges();
+        }
+
+        // Initialize App on load
+        window.onload = init;
+
+    </script>
+</body>
+</html>
