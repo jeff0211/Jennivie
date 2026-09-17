@@ -332,7 +332,7 @@
         const supabaseUrl = 'https://jqvzzpjgprnaejtkqsnv.supabase.co';
         const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impxdnp6cGpncHJuYWVqdGtxc252Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk2MjA3NjMsImV4cCI6MjEwNTE5Njc2M30.P2fWoZKtBYkdoFsOmAP8ED2JBljLYSE60DmsY7uzu0Y';
         const SUPABASE_ENABLED = supabaseUrl.includes('supabase.co') && supabaseAnonKey !== 'YOUR-ANON-KEY';
-        const supabase = SUPABASE_ENABLED ? window.supabase.createClient(supabaseUrl, supabaseAnonKey) : null;
+        const supabaseClient = SUPABASE_ENABLED ? window.supabase.createClient(supabaseUrl, supabaseAnonKey) : null;
 
         // Setup Chart defaults
         Chart.defaults.font.family = "'Inter', sans-serif";
@@ -341,7 +341,7 @@
 
         // --- Initialization & Supabase Setup ---
         async function init() {
-            if (supabase) {
+            if (supabaseClient) {
                 await loadDrinks();
                 await loadOrders();
                 await loadLogs();
@@ -399,9 +399,9 @@
         }
 
         async function loadDrinks() {
-            if (!supabase) return;
+            if (!supabaseClient) return;
 
-            const { data, error } = await supabase
+            const { data, error } = await supabaseClient
                 .from('drinks')
                 .select('*')
                 .order('id');
@@ -416,9 +416,9 @@
         }
 
         async function loadOrders() {
-            if (!supabase) return;
+            if (!supabaseClient) return;
 
-            const { data, error } = await supabase
+            const { data, error } = await supabaseClient
                 .from('orders')
                 .select(`
                     *,
@@ -450,9 +450,9 @@
         }
 
         async function loadLogs() {
-            if (!supabase) return;
+            if (!supabaseClient) return;
 
-            const { data, error } = await supabase
+            const { data, error } = await supabaseClient
                 .from('activity_logs')
                 .select('*')
                 .order('created_at', { ascending: false });
@@ -470,12 +470,12 @@
         }
 
         async function saveActivityLog(action, details) {
-            if (!supabase) {
+            if (!supabaseClient) {
                 logActivity(new Date(), action, details);
                 return;
             }
 
-            const { error } = await supabase
+            const { error } = await supabaseClient
                 .from('activity_logs')
                 .insert([{ action, details }]);
 
@@ -824,7 +824,7 @@
             
             const details = state.currentCart.map(i => `${i.drink.name} x${i.qty}`).join(', ');
             logActivity(new Date(), "Order Cancelled", details);
-            if (supabase) {
+            if (supabaseClient) {
                 await saveActivityLog('Order Cancelled', details);
             }
             
@@ -858,8 +858,8 @@
                 }
             });
 
-            if (supabase) {
-                const { data: orderData, error: orderError } = await supabase
+            if (supabaseClient) {
+                const { data: orderData, error: orderError } = await supabaseClient
                     .from('orders')
                     .insert([{
                         status: 'Completed',
@@ -876,7 +876,7 @@
                     return;
                 }
 
-                const { error: itemError } = await supabase
+                const { error: itemError } = await supabaseClient
                     .from('order_items')
                     .insert(orderItems.map(item => ({
                         order_id: orderData.id,
