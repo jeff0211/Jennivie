@@ -19,6 +19,9 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
+    <!-- Supabase -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
     <!-- Tailwind Configuration -->
     <script>
         tailwind.config = {
@@ -326,15 +329,26 @@
             volume: null
         };
 
+        const supabaseUrl = 'https://jqvzzpjgprnaejtkqsnv.supabase.co';
+        const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impxdnp6cGpncHJuYWVqdGtxc252Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk2MjA3NjMsImV4cCI6MjEwNTE5Njc2M30.P2fWoZKtBYkdoFsOmAP8ED2JBljLYSE60DmsY7uzu0Y';
+        const SUPABASE_ENABLED = supabaseUrl.includes('supabase.co') && supabaseAnonKey !== 'YOUR-ANON-KEY';
+        const supabase = SUPABASE_ENABLED ? window.supabase.createClient(supabaseUrl, supabaseAnonKey) : null;
+
         // Setup Chart defaults
         Chart.defaults.font.family = "'Inter', sans-serif";
         Chart.defaults.color = '#6b7280';
         Chart.defaults.plugins.tooltip.backgroundColor = 'rgba(62, 39, 35, 0.9)'; // Coffee-900
 
-        // --- Initialization & Mock Data Generation ---
-        function init() {
-            generateMockHistory();
-            populateDrinkFilter();
+        // --- Initialization & Supabase Setup ---
+        async function init() {
+            if (supabase) {
+                await loadDrinks();
+                await loadOrders();
+                await loadLogs();
+            } else {
+                generateMockHistory();
+                populateDrinkFilter();
+            }
             renderCatalog();
             switchTab('dashboard'); // Start at dashboard
         }
@@ -342,10 +356,9 @@
         function generateMockHistory() {
             const now = new Date();
             for (let i = 0; i < 40; i++) {
-                // Random date within the last 35 days
                 let d = new Date();
                 d.setDate(now.getDate() - Math.floor(Math.random() * 35));
-                d.setHours(Math.floor(Math.random() * 10) + 8); // 8am to 6pm
+                d.setHours(Math.floor(Math.random() * 10) + 8);
                 
                 let orderItems = [];
                 let numItems = Math.floor(Math.random() * 3) + 1;
@@ -354,7 +367,6 @@
                     let drink = DRINKS_CATALOG[Math.floor(Math.random() * DRINKS_CATALOG.length)];
                     let qty = Math.floor(Math.random() * 3) + 1;
                     
-                    // Check if already in orderItems
                     let existing = orderItems.find(item => item.drink.id === drink.id);
                     if(existing) {
                         existing.qty += qty;
@@ -383,8 +395,95 @@
 
                 logActivity(d, "Order Complete", `${orderItems.length} item(s) sold.`);
             }
-            // Sort orders chronologically
             state.orders.sort((a,b) => a.timestamp - b.timestamp);
+        }
+
+        async function loadDrinks() {
+            if (!supabase) return;
+
+            const { data, error } = await supabase
+                .from('drinks')
+                .select('*')
+                .order('id');
+
+            if (error) {
+                console.error('Error loading drinks:', error);
+                return;
+            }
+
+            DRINKS_CATALOG.splice(0, DRINKS_CATALOG.length, ...data);
+            populateDrinkFilter();
+        }
+
+        async function loadOrders() {
+            if (!supabase) return;
+
+            const { data, error } = await supabase
+                .from('orders')
+                .select(`
+                    *,
+                    order_items (
+                        *,
+                        drinks:drink_id (*)
+                    )
+                `)
+                .order('created_at', { ascending: false });
+
+            if (error) {
+                console.error('Error loading orders:', error);
+                return;
+            }
+
+            state.orders = (data || []).map(order => ({
+                id: order.id,
+                timestamp: new Date(order.created_at),
+                status: order.status,
+                totalRevenue: Number(order.total_revenue || 0),
+                totalProfit: Number(order.total_profit || 0),
+                items: (order.order_items || []).map(item => ({
+                    drink: item.drinks || { id: item.drink_id, name: 'Drink', cost: 0, price: 0 },
+                    qty: item.qty,
+                    totalPrice: Number(item.total_price || 0),
+                    totalCost: Number(item.total_cost || 0)
+                }))
+            })).sort((a, b) => b.timestamp - a.timestamp);
+        }
+
+        async function loadLogs() {
+            if (!supabase) return;
+
+            const { data, error } = await supabase
+                .from('activity_logs')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            if (error) {
+                console.error('Error loading logs:', error);
+                return;
+            }
+
+            state.logs = (data || []).map(log => ({
+                time: new Date(log.created_at),
+                action: log.action,
+                details: log.details
+            }));
+        }
+
+        async function saveActivityLog(action, details) {
+            if (!supabase) {
+                logActivity(new Date(), action, details);
+                return;
+            }
+
+            const { error } = await supabase
+                .from('activity_logs')
+                .insert([{ action, details }]);
+
+            if (error) {
+                console.error('Error saving activity log:', error);
+            }
+
+            await loadLogs();
         }
 
         // --- Core Utility Functions ---
@@ -720,18 +819,23 @@
             renderCart();
         }
 
-        function cancelOrder() {
+        async function cancelOrder() {
             if(state.currentCart.length === 0) return;
             
             const details = state.currentCart.map(i => `${i.drink.name} x${i.qty}`).join(', ');
             logActivity(new Date(), "Order Cancelled", details);
+            if (supabase) {
+                await saveActivityLog('Order Cancelled', details);
+            }
             
             state.currentCart = [];
             renderCart();
+            updateDashboard();
+            renderHistory();
             showToast('Order Cancelled', 'error');
         }
 
-        function completeOrder() {
+        async function completeOrder() {
             if(state.currentCart.length === 0) {
                 showToast('Cart is empty', 'info');
                 return;
@@ -754,19 +858,61 @@
                 }
             });
 
-            state.orders.push({
-                items: orderItems,
-                timestamp: now,
-                status: "Completed",
-                totalRevenue: totalRev,
-                totalProfit: totalRev - totalCost
-            });
+            if (supabase) {
+                const { data: orderData, error: orderError } = await supabase
+                    .from('orders')
+                    .insert([{
+                        status: 'Completed',
+                        total_revenue: totalRev,
+                        total_profit: totalRev - totalCost,
+                        created_at: now.toISOString()
+                    }])
+                    .select()
+                    .single();
 
-            const details = orderItems.map(i => `${i.drink.name} x${i.qty}`).join(', ');
-            logActivity(now, "Order Complete", details);
+                if (orderError) {
+                    console.error('Error creating order:', orderError);
+                    showToast('Database order save failed', 'error');
+                    return;
+                }
+
+                const { error: itemError } = await supabase
+                    .from('order_items')
+                    .insert(orderItems.map(item => ({
+                        order_id: orderData.id,
+                        drink_id: item.drink.id,
+                        qty: item.qty,
+                        total_price: item.totalPrice,
+                        total_cost: item.totalCost
+                    })));
+
+                if (itemError) {
+                    console.error('Error creating order items:', itemError);
+                    showToast('Database order item save failed', 'error');
+                    return;
+                }
+
+                const details = orderItems.map(i => `${i.drink.name} x${i.qty}`).join(', ');
+                await saveActivityLog('Order Complete', details);
+                await loadOrders();
+                await loadLogs();
+            } else {
+                state.orders.push({
+                    items: orderItems,
+                    timestamp: now,
+                    status: "Completed",
+                    totalRevenue: totalRev,
+                    totalProfit: totalRev - totalCost
+                });
+
+                const details = orderItems.map(i => `${i.drink.name} x${i.qty}`).join(', ');
+                logActivity(now, "Order Complete", details);
+            }
 
             state.currentCart = [];
             renderCart();
+            updateDashboard();
+            renderHistory();
             showToast('Order Completed!', 'success');
         }
 
@@ -883,4 +1029,8 @@
 
     </script>
 </body>
+<<<<<<< HEAD
 </html>
+=======
+</html>
+>>>>>>> 9672842 (Initial commit)
