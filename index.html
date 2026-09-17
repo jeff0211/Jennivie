@@ -335,7 +335,7 @@
                     </div>
                 </div>
 
-                <button onclick="saveNewDrink()" class="w-full bg-coffee-700 text-white py-3 rounded-xl font-semibold shadow-md hover:bg-coffee-900 transition mt-4">
+                <button id="drink-save-button" onclick="saveNewDrink()" class="w-full bg-coffee-700 text-white py-3 rounded-xl font-semibold shadow-md hover:bg-coffee-900 transition mt-4">
                     Save Drink
                 </button>
             </div>
@@ -359,7 +359,9 @@
             currentCart: [],
             privacyMode: true,
             selectedDrinkForModal: null,
-            modalQty: 1
+            modalQty: 1,
+            drinkFormMode: 'create',
+            editingDrinkId: null
         };
 
         // Chart instances to destroy before redrawing
@@ -608,22 +610,47 @@
             });
         }
 
-        function openDrinkForm() {
+        function openDrinkForm(drink = null) {
+            if (drink) {
+                state.drinkFormMode = 'edit';
+                state.editingDrinkId = drink.id;
+                document.getElementById('drink-name-input').value = drink.name;
+                document.getElementById('drink-cost-input').value = drink.cost;
+                document.getElementById('drink-price-input').value = drink.price;
+                document.getElementById('drink-image-input').value = drink.img || '';
+                document.getElementById('drink-form-title').textContent = 'Edit Drink';
+                document.getElementById('drink-save-button').textContent = 'Update Drink';
+            } else {
+                state.drinkFormMode = 'create';
+                state.editingDrinkId = null;
+                document.getElementById('drink-name-input').value = '';
+                document.getElementById('drink-cost-input').value = '';
+                document.getElementById('drink-price-input').value = '';
+                document.getElementById('drink-image-input').value = '';
+                document.getElementById('drink-form-title').textContent = 'Add New Drink';
+                document.getElementById('drink-save-button').textContent = 'Save Drink';
+            }
+
             document.getElementById('drink-form-overlay').classList.remove('hidden');
             document.getElementById('drink-form-overlay').classList.add('active', 'flex');
             setTimeout(() => {
                 const nameInput = document.getElementById('drink-name-input');
                 nameInput.focus();
+                nameInput.select();
             }, 100);
         }
 
         function closeDrinkForm() {
+            state.drinkFormMode = 'create';
+            state.editingDrinkId = null;
             document.getElementById('drink-form-overlay').classList.add('hidden');
             document.getElementById('drink-form-overlay').classList.remove('active', 'flex');
             document.getElementById('drink-name-input').value = '';
             document.getElementById('drink-cost-input').value = '';
             document.getElementById('drink-price-input').value = '';
             document.getElementById('drink-image-input').value = '';
+            document.getElementById('drink-form-title').textContent = 'Add New Drink';
+            document.getElementById('drink-save-button').textContent = 'Save Drink';
         }
 
         async function saveNewDrink() {
@@ -637,18 +664,46 @@
                 return;
             }
 
-            const nextId = DRINKS_CATALOG.length ? Math.max(...DRINKS_CATALOG.map(d => d.id)) + 1 : 1;
-            const newDrink = {
-                id: nextId,
+            const payload = {
                 name,
                 cost,
                 price,
                 img: image || `https://placehold.co/150x150/8c6b5d/ffffff?text=${encodeURIComponent(name.slice(0, 12))}`
             };
 
-            DRINKS_CATALOG.push(newDrink);
-            populateDrinkFilter();
-            renderCatalog();
+            if (state.drinkFormMode === 'edit' && state.editingDrinkId !== null) {
+                const index = DRINKS_CATALOG.findIndex(item => item.id === state.editingDrinkId);
+                if (index === -1) {
+                    showToast('Drink not found', 'error');
+                    return;
+                }
+
+                const updatedDrink = { ...DRINKS_CATALOG[index], ...payload };
+
+                if (supabaseClient) {
+                    const { error } = await supabaseClient
+                        .from('drinks')
+                        .update({ name: payload.name, cost: payload.cost, price: payload.price, img: payload.img })
+                        .eq('id', state.editingDrinkId);
+
+                    if (error) {
+                        console.error('Error updating drink:', error);
+                        showToast('Database update failed', 'error');
+                        return;
+                    }
+                }
+
+                DRINKS_CATALOG[index] = updatedDrink;
+                populateDrinkFilter();
+                renderCatalog();
+                closeDrinkForm();
+                showToast('Drink updated successfully', 'success');
+                updateDashboard();
+                return;
+            }
+
+            const nextId = DRINKS_CATALOG.length ? Math.max(...DRINKS_CATALOG.map(d => d.id)) + 1 : 1;
+            const newDrink = { id: nextId, ...payload };
 
             if (supabaseClient) {
                 const { error } = await supabaseClient
@@ -663,9 +718,43 @@
                 }
             }
 
+            DRINKS_CATALOG.push(newDrink);
+            populateDrinkFilter();
+            renderCatalog();
             closeDrinkForm();
             showToast('Drink added successfully', 'success');
             updateDashboard();
+        }
+
+        async function deleteDrink(drinkId) {
+            const drink = DRINKS_CATALOG.find(item => item.id === drinkId);
+            if (!drink) return;
+
+            const confirmed = window.confirm(`Delete ${drink.name}?`);
+            if (!confirmed) return;
+
+            if (supabaseClient) {
+                const { error } = await supabaseClient
+                    .from('drinks')
+                    .delete()
+                    .eq('id', drinkId);
+
+                if (error) {
+                    console.error('Error deleting drink:', error);
+                    showToast('Database delete failed', 'error');
+                    return;
+                }
+            }
+
+            const index = DRINKS_CATALOG.findIndex(item => item.id === drinkId);
+            if (index !== -1) {
+                DRINKS_CATALOG.splice(index, 1);
+            }
+
+            populateDrinkFilter();
+            renderCatalog();
+            updateDashboard();
+            showToast('Drink deleted successfully', 'success');
         }
 
         function getFilteredOrders(timeframe) {
@@ -829,12 +918,36 @@
                 item.onclick = () => openQtyModal(drink);
                 
                 item.innerHTML = `
-                    <img src="${drink.img}" alt="${drink.name}" class="w-full h-20 object-cover bg-gray-100">
+                    <div class="relative">
+                        <img src="${drink.img}" alt="${drink.name}" class="w-full h-20 object-cover bg-gray-100">
+                        <div class="absolute top-1 right-1 flex space-x-1">
+                            <button data-action="edit" data-id="${drink.id}" class="bg-white/90 text-gray-700 p-1 rounded shadow-sm hover:bg-white" title="Edit drink">
+                                <i class="fa-solid fa-pen text-[10px]"></i>
+                            </button>
+                            <button data-action="delete" data-id="${drink.id}" class="bg-white/90 text-red-500 p-1 rounded shadow-sm hover:bg-white" title="Delete drink">
+                                <i class="fa-solid fa-trash text-[10px]"></i>
+                            </button>
+                        </div>
+                    </div>
                     <div class="p-2 flex-1 flex flex-col justify-between text-center">
                         <h4 class="text-[11px] font-bold text-gray-800 leading-tight mb-1">${drink.name}</h4>
                         <p class="text-xs text-coffee-700 font-semibold">$${drink.price.toFixed(2)}</p>
                     </div>
                 `;
+
+                const editBtn = item.querySelector('[data-action="edit"]');
+                const deleteBtn = item.querySelector('[data-action="delete"]');
+
+                editBtn.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    openDrinkForm(drink);
+                });
+
+                deleteBtn.addEventListener('click', async (event) => {
+                    event.stopPropagation();
+                    await deleteDrink(drink.id);
+                });
+
                 grid.appendChild(item);
             });
             renderCart();
