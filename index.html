@@ -295,6 +295,11 @@
                     </button>
                 </div>
 
+                <div class="mb-4">
+                    <label for="modal-remark-input" class="block text-xs font-semibold text-gray-600 mb-1">Drink Remark (optional)</label>
+                    <input id="modal-remark-input" type="text" maxlength="80" placeholder="e.g. Less ice, no sugar" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-coffee-500" />
+                </div>
+
                 <button onclick="confirmAddToOrder()" class="w-full bg-coffee-700 text-white py-3 rounded-xl font-semibold shadow-md hover:bg-coffee-900 transition mt-2">
                     Add to Order
                 </button>
@@ -360,6 +365,7 @@
             privacyMode: true,
             selectedDrinkForModal: null,
             modalQty: 1,
+            modalDrinkNote: '',
             drinkFormMode: 'create',
             editingDrinkId: null
         };
@@ -956,14 +962,23 @@
         function openQtyModal(drink) {
             state.selectedDrinkForModal = drink;
             state.modalQty = 1;
+            state.modalDrinkNote = '';
             document.getElementById('modal-drink-name').textContent = drink.name;
             document.getElementById('modal-qty').textContent = state.modalQty;
+            const remarkInput = document.getElementById('modal-remark-input');
+            if (remarkInput) {
+                remarkInput.value = '';
+                remarkInput.focus();
+            }
             document.getElementById('modal-overlay').classList.add('active');
         }
 
         function closeModal() {
             document.getElementById('modal-overlay').classList.remove('active');
             state.selectedDrinkForModal = null;
+            state.modalDrinkNote = '';
+            const remarkInput = document.getElementById('modal-remark-input');
+            if (remarkInput) remarkInput.value = '';
         }
 
         function changeQty(delta) {
@@ -979,14 +994,18 @@
             
             const drink = state.selectedDrinkForModal;
             const qty = state.modalQty;
+            const remark = document.getElementById('modal-remark-input')?.value.trim() || '';
+            state.modalDrinkNote = remark;
             
-            let existing = state.currentCart.find(i => i.drink.id === drink.id);
+            const cartKey = (remark || '').trim();
+            let existing = state.currentCart.find(i => i.drink.id === drink.id && (i.remark || '') === cartKey);
             if(existing) {
                 existing.qty += qty;
             } else {
                 state.currentCart.push({
                     drink: drink,
-                    qty: qty
+                    qty: qty,
+                    remark: remark
                 });
             }
             
@@ -1010,6 +1029,7 @@
             state.currentCart.forEach((item, index) => {
                 const itemTotal = item.drink.price * item.qty;
                 total += itemTotal;
+                const remarkText = item.remark ? `<span class="text-[10px] text-amber-700 mt-0.5">Remark: ${item.remark}</span>` : '';
                 
                 const el = document.createElement('div');
                 el.className = 'flex justify-between items-center p-2 border-b border-gray-100 last:border-0 bg-gray-50 rounded mb-1';
@@ -1017,6 +1037,7 @@
                     <div class="flex flex-col">
                         <span class="text-sm font-bold text-gray-800">${item.drink.name}</span>
                         <span class="text-xs text-gray-500">x${item.qty} (@ $${item.drink.price.toFixed(2)})</span>
+                        ${remarkText}
                     </div>
                     <div class="flex items-center">
                         <span class="text-sm font-bold text-coffee-900 mr-3">$${itemTotal.toFixed(2)}</span>
@@ -1068,7 +1089,8 @@
                     drink: i.drink,
                     qty: i.qty,
                     totalPrice: itemTotalRev,
-                    totalCost: itemTotalCost
+                    totalCost: itemTotalCost,
+                    remark: i.remark || ''
                 }
             });
 
@@ -1112,7 +1134,12 @@
                 await loadLogs();
             } else {
                 state.orders.push({
-                    items: orderItems,
+                    items: orderItems.map(({ drink, qty, totalPrice, totalCost }) => ({
+                        drink,
+                        qty,
+                        totalPrice,
+                        totalCost
+                    })),
                     timestamp: now,
                     status: "Completed",
                     totalRevenue: totalRev,
