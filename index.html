@@ -186,7 +186,7 @@
                 </div>
                 
                 <!-- Catalog Grid -->
-                <div id="catalog-grid" class="grid grid-cols-3 gap-3 mb-4 overflow-y-auto" style="max-height: 45vh;">
+                <div id="catalog-grid" class="grid grid-cols-3 gap-3 mb-4 overflow-y-auto" style="max-height: 48vh;">
                     <!-- Rendered by JS -->
                 </div>
 
@@ -914,12 +914,12 @@
             
             DRINKS_CATALOG.forEach(drink => {
                 const item = document.createElement('div');
-                item.className = 'bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100 cursor-pointer active:scale-95 transition flex flex-col h-full';
+                item.className = 'bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100 cursor-pointer active:scale-95 transition flex flex-col h-full min-h-[230px]';
                 item.onclick = () => openQtyModal(drink);
                 
                 item.innerHTML = `
-                    <div class="relative">
-                        <img src="${drink.img}" alt="${drink.name}" class="w-full h-20 object-cover bg-gray-100">
+                    <div class="relative flex-1 min-h-[150px]">
+                        <img src="${drink.img}" alt="${drink.name}" class="w-full h-full object-cover bg-gray-100">
                         <div class="absolute top-1 right-1 flex space-x-1">
                             <button data-action="edit" data-id="${drink.id}" class="bg-white/90 text-gray-700 p-1 rounded shadow-sm hover:bg-white" title="Edit drink">
                                 <i class="fa-solid fa-pen text-[10px]"></i>
@@ -929,8 +929,8 @@
                             </button>
                         </div>
                     </div>
-                    <div class="p-2 flex-1 flex flex-col justify-between text-center">
-                        <h4 class="text-[11px] font-bold text-gray-800 leading-tight mb-1">${drink.name}</h4>
+                    <div class="p-2 h-[62px] flex flex-col justify-center text-center gap-0.5">
+                        <h4 class="text-[11px] font-bold text-gray-800 leading-tight">${drink.name}</h4>
                         <p class="text-xs text-coffee-700 font-semibold">$${drink.price.toFixed(2)}</p>
                     </div>
                 `;
