@@ -1304,6 +1304,12 @@
                     // Update views silently in the background
                     updateDashboard();
                     renderHistory();
+
+                    // Broadcast the cart state periodically so if the kitchen device
+                    // refreshes, it will pick up the current POS cart within 5 seconds.
+                    if (state.currentCart.length > 0) {
+                        broadcastCart();
+                    }
                 }
             }, 5000);
         };
