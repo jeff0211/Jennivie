@@ -384,6 +384,27 @@
         const SUPABASE_ENABLED = supabaseUrl.includes('supabase.co') && supabaseAnonKey !== 'YOUR-ANON-KEY';
         const supabaseClient = SUPABASE_ENABLED ? window.supabase.createClient(supabaseUrl, supabaseAnonKey) : null;
 
+        // Realtime cart sync
+        let cartChannel = null;
+        if (supabaseClient) {
+            cartChannel = supabaseClient.channel('cart_sync');
+            cartChannel.on('broadcast', { event: 'cart_update' }, (payload) => {
+                // If this device's cart is empty or we receive an update, accept the remote cart state
+                state.currentCart = payload.cart || [];
+                renderCart();
+            }).subscribe();
+        }
+
+        function broadcastCart() {
+            if (cartChannel) {
+                cartChannel.send({
+                    type: 'broadcast',
+                    event: 'cart_update',
+                    payload: { cart: state.currentCart }
+                });
+            }
+        }
+
         // Setup Chart defaults
         Chart.defaults.font.family = "'Inter', sans-serif";
         Chart.defaults.color = '#6b7280';
@@ -1013,6 +1034,7 @@
             
             closeModal();
             renderCart();
+            broadcastCart();
             showToast(`Added ${qty}x ${drink.name}`, 'success');
         }
 
@@ -1054,6 +1076,7 @@
         function removeCartItem(index) {
             state.currentCart.splice(index, 1);
             renderCart();
+            broadcastCart();
         }
 
         async function cancelOrder() {
@@ -1067,6 +1090,7 @@
             
             state.currentCart = [];
             renderCart();
+            broadcastCart();
             updateDashboard();
             renderHistory();
             showToast('Order Cancelled', 'error');
@@ -1154,6 +1178,7 @@
 
             state.currentCart = [];
             renderCart();
+            broadcastCart();
             updateDashboard();
             renderHistory();
             showToast('Order Completed!', 'success');
