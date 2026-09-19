@@ -1268,7 +1268,20 @@
         }
 
         // Initialize App on load
-        window.onload = init;
+        window.onload = () => {
+            init();
+            
+            // Auto-refresh orders and logs every 5 seconds for kitchen crew sync
+            setInterval(async () => {
+                if (supabaseClient) {
+                    await loadOrders();
+                    await loadLogs();
+                    // Update views silently in the background
+                    updateDashboard();
+                    renderHistory();
+                }
+            }, 5000);
+        };
 
     </script>
 </body>
