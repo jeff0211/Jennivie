@@ -421,7 +421,7 @@
                     qty: item.qty,
                     totalPrice: Number(item.total_price || 0),
                     totalCost: Number(item.total_cost || 0),
-                    remark: '' // Note: remarks are not stored in db
+                    remark: item.remark || ''
                 }));
             } else {
                 pendingOrderId = null;
@@ -1064,7 +1064,8 @@
                             drink_id: drink.id,
                             qty: qty,
                             total_price: qty * drink.price,
-                            total_cost: qty * drink.cost
+                            total_cost: qty * drink.cost,
+                            remark: remark
                         }]);
                     await fetchPendingOrder();
                 }
