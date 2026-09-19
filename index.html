@@ -383,26 +383,51 @@
         const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impxdnp6cGpncHJuYWVqdGtxc252Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk2MjA3NjMsImV4cCI6MjEwNTE5Njc2M30.P2fWoZKtBYkdoFsOmAP8ED2JBljLYSE60DmsY7uzu0Y';
         const SUPABASE_ENABLED = supabaseUrl.includes('supabase.co') && supabaseAnonKey !== 'YOUR-ANON-KEY';
         const supabaseClient = SUPABASE_ENABLED ? window.supabase.createClient(supabaseUrl, supabaseAnonKey) : null;
+        let pendingOrderId = null;
 
-        // Realtime cart sync
-        let cartChannel = null;
         if (supabaseClient) {
-            cartChannel = supabaseClient.channel('cart_sync');
-            cartChannel.on('broadcast', { event: 'cart_update' }, (payload) => {
-                // If this device's cart is empty or we receive an update, accept the remote cart state
-                state.currentCart = payload.cart || [];
-                renderCart();
-            }).subscribe();
+            supabaseClient.channel('db_changes')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, payload => {
+                    fetchPendingOrder();
+                    loadOrders();
+                    setTimeout(() => { updateDashboard(); renderHistory(); }, 500);
+                })
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, payload => {
+                    fetchPendingOrder();
+                })
+                .subscribe();
         }
 
-        function broadcastCart() {
-            if (cartChannel) {
-                cartChannel.send({
-                    type: 'broadcast',
-                    event: 'cart_update',
-                    payload: { cart: state.currentCart }
-                });
+        async function fetchPendingOrder() {
+            if (!supabaseClient) return;
+            const { data, error } = await supabaseClient
+                .from('orders')
+                .select(`
+                    *,
+                    order_items (
+                        *,
+                        drinks:drink_id (*)
+                    )
+                `)
+                .eq('status', 'Pending')
+                .order('created_at', { ascending: false })
+                .limit(1);
+
+            if (data && data.length > 0) {
+                pendingOrderId = data[0].id;
+                state.currentCart = (data[0].order_items || []).map(item => ({
+                    id: item.id,
+                    drink: item.drinks || { id: item.drink_id, name: 'Drink', cost: 0, price: 0 },
+                    qty: item.qty,
+                    totalPrice: Number(item.total_price || 0),
+                    totalCost: Number(item.total_cost || 0),
+                    remark: '' // Note: remarks are not stored in db
+                }));
+            } else {
+                pendingOrderId = null;
+                state.currentCart = [];
             }
+            renderCart();
         }
 
         // Setup Chart defaults
@@ -414,6 +439,7 @@
         async function init() {
             if (supabaseClient) {
                 await loadDrinks();
+                await fetchPendingOrder();
                 await loadOrders();
                 await loadLogs();
             } else {
@@ -1012,29 +1038,46 @@
             }
         }
 
-        function confirmAddToOrder() {
+        async function confirmAddToOrder() {
             if(!state.selectedDrinkForModal) return;
-            
             const drink = state.selectedDrinkForModal;
             const qty = state.modalQty;
             const remark = document.getElementById('modal-remark-input')?.value.trim() || '';
             state.modalDrinkNote = remark;
-            
-            const cartKey = (remark || '').trim();
-            let existing = state.currentCart.find(i => i.drink.id === drink.id && (i.remark || '') === cartKey);
-            if(existing) {
-                existing.qty += qty;
-            } else {
-                state.currentCart.push({
-                    drink: drink,
-                    qty: qty,
-                    remark: remark
-                });
-            }
-            
             closeModal();
-            renderCart();
-            broadcastCart();
+
+            if (supabaseClient) {
+                if (!pendingOrderId) {
+                    const { data, error } = await supabaseClient
+                        .from('orders')
+                        .insert([{ status: 'Pending', total_revenue: 0, total_profit: 0 }])
+                        .select()
+                        .single();
+                    if (data) pendingOrderId = data.id;
+                }
+
+                if (pendingOrderId) {
+                    await supabaseClient
+                        .from('order_items')
+                        .insert([{
+                            order_id: pendingOrderId,
+                            drink_id: drink.id,
+                            qty: qty,
+                            total_price: qty * drink.price,
+                            total_cost: qty * drink.cost
+                        }]);
+                    await fetchPendingOrder();
+                }
+            } else {
+                const cartKey = (remark || '').trim();
+                let existing = state.currentCart.find(i => i.drink.id === drink.id && (i.remark || '') === cartKey);
+                if(existing) {
+                    existing.qty += qty;
+                } else {
+                    state.currentCart.push({ drink, qty, remark });
+                }
+                renderCart();
+            }
             showToast(`Added ${qty}x ${drink.name}`, 'success');
         }
 
@@ -1073,24 +1116,32 @@
             totalEl.textContent = `$${total.toFixed(2)}`;
         }
 
-        function removeCartItem(index) {
-            state.currentCart.splice(index, 1);
-            renderCart();
-            broadcastCart();
+        async function removeCartItem(index) {
+            const item = state.currentCart[index];
+            if (supabaseClient && pendingOrderId && item.id) {
+                await supabaseClient.from('order_items').delete().eq('id', item.id);
+                await fetchPendingOrder();
+            } else {
+                state.currentCart.splice(index, 1);
+                renderCart();
+            }
         }
 
         async function cancelOrder() {
             if(state.currentCart.length === 0) return;
-            
             const details = state.currentCart.map(i => `${i.drink.name} x${i.qty}`).join(', ');
-            logActivity(new Date(), "Order Cancelled", details);
-            if (supabaseClient) {
-                await saveActivityLog('Order Cancelled', details);
-            }
             
-            state.currentCart = [];
-            renderCart();
-            broadcastCart();
+            if (supabaseClient && pendingOrderId) {
+                await saveActivityLog('Order Cancelled', details);
+                await supabaseClient.from('orders').update({ status: 'Cancelled' }).eq('id', pendingOrderId);
+                pendingOrderId = null;
+                state.currentCart = [];
+                renderCart();
+            } else {
+                logActivity(new Date(), "Order Cancelled", details);
+                state.currentCart = [];
+                renderCart();
+            }
             updateDashboard();
             renderHistory();
             showToast('Order Cancelled', 'error');
@@ -1103,82 +1154,36 @@
             }
 
             const now = new Date();
-            let totalRev = 0;
-            let totalCost = 0;
+            let totalRev = 0; let totalCost = 0;
+            state.currentCart.forEach(i => { totalRev += i.totalPrice; totalCost += i.totalCost; });
             
-            let orderItems = state.currentCart.map(i => {
-                const itemTotalRev = i.qty * i.drink.price;
-                const itemTotalCost = i.qty * i.drink.cost;
-                totalRev += itemTotalRev;
-                totalCost += itemTotalCost;
-                return {
-                    drink: i.drink,
-                    qty: i.qty,
-                    totalPrice: itemTotalRev,
-                    totalCost: itemTotalCost,
-                    remark: i.remark || ''
-                }
-            });
-
-            if (supabaseClient) {
-                const { data: orderData, error: orderError } = await supabaseClient
-                    .from('orders')
-                    .insert([{
-                        status: 'Completed',
-                        total_revenue: totalRev,
-                        total_profit: totalRev - totalCost,
-                        created_at: now.toISOString()
-                    }])
-                    .select()
-                    .single();
-
-                if (orderError) {
-                    console.error('Error creating order:', orderError);
-                    showToast('Database order save failed', 'error');
-                    return;
-                }
-
-                const { error: itemError } = await supabaseClient
-                    .from('order_items')
-                    .insert(orderItems.map(item => ({
-                        order_id: orderData.id,
-                        drink_id: item.drink.id,
-                        qty: item.qty,
-                        total_price: item.totalPrice,
-                        total_cost: item.totalCost
-                    })));
-
-                if (itemError) {
-                    console.error('Error creating order items:', itemError);
-                    showToast('Database order item save failed', 'error');
-                    return;
-                }
-
-                const details = orderItems.map(i => `${i.drink.name} x${i.qty}`).join(', ');
+            if (supabaseClient && pendingOrderId) {
+                const details = state.currentCart.map(i => `${i.drink.name} x${i.qty}`).join(', ');
                 await saveActivityLog('Order Complete', details);
-                await loadOrders();
-                await loadLogs();
+                await supabaseClient.from('orders').update({
+                    status: 'Completed',
+                    total_revenue: totalRev,
+                    total_profit: totalRev - totalCost
+                }).eq('id', pendingOrderId);
+                pendingOrderId = null;
+                state.currentCart = [];
+                renderCart();
             } else {
                 state.orders.push({
-                    items: orderItems.map(({ drink, qty, totalPrice, totalCost }) => ({
-                        drink,
-                        qty,
-                        totalPrice,
-                        totalCost
+                    items: state.currentCart.map(({ drink, qty, totalPrice, totalCost }) => ({
+                        drink, qty, totalPrice, totalCost
                     })),
                     timestamp: now,
                     status: "Completed",
                     totalRevenue: totalRev,
                     totalProfit: totalRev - totalCost
                 });
-
-                const details = orderItems.map(i => `${i.drink.name} x${i.qty}`).join(', ');
+                const details = state.currentCart.map(i => `${i.drink.name} x${i.qty}`).join(', ');
                 logActivity(now, "Order Complete", details);
+                state.currentCart = [];
+                renderCart();
             }
 
-            state.currentCart = [];
-            renderCart();
-            broadcastCart();
             updateDashboard();
             renderHistory();
             showToast('Order Completed!', 'success');
@@ -1304,12 +1309,6 @@
                     // Update views silently in the background
                     updateDashboard();
                     renderHistory();
-
-                    // Broadcast the cart state periodically so if the kitchen device
-                    // refreshes, it will pick up the current POS cart within 5 seconds.
-                    if (state.currentCart.length > 0) {
-                        broadcastCart();
-                    }
                 }
             }, 5000);
         };
